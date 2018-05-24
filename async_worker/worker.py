@@ -78,6 +78,9 @@ class AsyncWorker(object):
     def is_running(self):
         return self._run and self._task is not None
 
+    def __del__(self):
+        self.stop()
+
 
 class AsyncWorkerFunction(object):
 

@@ -27,7 +27,7 @@ class AsyncWorker(object):
     object by the AsyncWorkerInit.
     """
 
-    def __init__(self, work_fn, obj):
+    def __init__(self, work_fn):
         """
 
         :param worker_fn: function that does a single step of a long running
@@ -42,7 +42,7 @@ class AsyncWorker(object):
         self._is_running = False
         self._run = False
         self._task = None
-        self._obj = obj
+        self._future = None
 
     @asyncio.coroutine
     def _worker(self):
@@ -56,30 +56,42 @@ class AsyncWorker(object):
         local_run = True
         while all([self._run, local_run]):
             try:
-                yield from self._work_fn(self._obj)
+                yield from self._work_fn()
                 yield
             except asyncio.CancelledError:
                 # Task cancelled by user
                 local_run = False
                 self.stop()
+        self._run = False
 
     def start(self):
         if not self._run:
             self._run = True
             self._task = asyncio.ensure_future(self._worker())
+            self._future = None
+
+            def capture_future(future):
+                self._future = future
+
+            self._task.add_done_callback(capture_future)
 
     def stop(self):
-        if self._task is not None:
+        if hasattr(self, '_task') and self._task is not None:
             self._run = False
             self._task.cancel()
             self._task = None
-
-    @property
-    def is_running(self):
-        return self._run and self._task is not None
+            if self._future and self._future.exception() is not None:
+                future = self._future
+                self._future = None
+                raise future.exception()
 
     def __del__(self):
         self.stop()
+
+    @property
+    def is_running(self):
+        return (self._run
+                and self._task is not None)
 
 
 class AsyncWorkerFunction(object):
@@ -99,32 +111,28 @@ class AsyncWorkerFunction(object):
             return self
         else:
             if not hasattr(obj, self._worker_name):
-                async_worker = AsyncWorker(self._worker_fn, obj)
+                def worker_fn():
+                    return self._worker_fn(obj)
+                async_worker = AsyncWorker(worker_fn)
                 setattr(obj, self._worker_name, async_worker)
             return getattr(obj, self._worker_name)
 
     def __set__(self, obj, value):
         raise AttributeError("Can't set attribute")
 
+    def __call__(self, obj, *args, **kwargs):
+        return self._worker_fn(obj, *args, **kwargs)
 
-def async_worker(worker_fn_or_name):
+
+def async_worker(work_fn):
     """
     Decorator for creating AsyncWorkers
 
-    :param worker_fn_or_name: takes in a string or method. If method,
-            this creates a AsyncWorkerFunction with the name of the
-            method and '_worker' appended and the worker_fn being the method.
-            If this is a string, this returns another decorator that sets
-            the string as the name and the next function as the worker.
-    :type worker_fn_or_name: str or callable
+    :param work_fn: Method to create async worker from
+    :type worker_fn_or_name: callable
     """
-    if callable(worker_fn_or_name):
-        name = worker_fn_or_name.__name__
-        worker_fn = worker_fn_or_name
-        return AsyncWorkerFunction(name, worker_fn)
+    if callable(work_fn):
+        name = f'_{work_fn.__name__}_worker'
+        return AsyncWorkerFunction(name, work_fn)
     else:
-        name = worker_fn_or_name
-
-        def set_worker_fn(worker_fn):
-            return AsyncWorkerFunction(name, worker_fn)
-        return set_worker_fn
+        raise ValueError('Must pass in callable')

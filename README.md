@@ -1,10 +1,17 @@
-# Asyncio Worker
+# Async Worker
 
 Allows for the simple creation and management of longstanding asyncio workers.
 
 ## Installation
     
     pip install async_worker
+
+## Design Details
+
+The decorator wraps a single unit of work. This unit of work could be anything, such as pulling 
+from a socket or reading from a file. This unit of work is passed to a "worker" that will call 
+the function repeatedly until it is told to stop. The class handles starting and stoping the 
+worker task.
 
 ## How to Use
 

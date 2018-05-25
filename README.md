@@ -4,7 +4,7 @@ Allows for the simple creation and management of longstanding asyncio workers.
 
 ## Installation
     
-    pip install async_worker
+    pip install git+git://github.com:amustafa/async_worker.git
 
 ## Design Details
 

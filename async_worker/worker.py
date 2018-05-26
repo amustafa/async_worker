@@ -21,10 +21,6 @@ import asyncio
 class AsyncWorker(object):
 
     """
-    A decorator class that will wrap a function that acts as a single
-    loop around a long standing function. Will also provide all the
-    neccessary items for the worker to be managed. This is added to the
-    object by the AsyncWorkerInit.
     """
 
     def __init__(self, work_fn):
@@ -39,10 +35,13 @@ class AsyncWorker(object):
         else:
             self._work_fn = work_fn
 
-        self._is_running = False
         self._run = False
         self._task = None
         self._future = None
+
+        self._start_event = asyncio.Event()
+        self._stop_event = asyncio.Event()
+        self._stop_event.set()
 
     @asyncio.coroutine
     def _worker(self):
@@ -53,16 +52,19 @@ class AsyncWorker(object):
         If this task is cancelled, the cancellation is handled and the loop is
         stopped.
         """
+        self._start_event.set()
+        self._stop_event.clear()
         local_run = True
-        while all([self._run, local_run]):
-            try:
+        try:
+            while all([self._run, local_run]):
                 yield from self._work_fn()
                 yield
-            except asyncio.CancelledError:
-                # Task cancelled by user
-                local_run = False
-                self.stop()
-        self._run = False
+        except asyncio.CancelledError:
+            # Task cancelled by user
+            local_run = False
+        finally:
+            self._start_event.clear()
+            self._stop_event.set()
 
     def start(self):
         if not self._run:
@@ -75,6 +77,14 @@ class AsyncWorker(object):
 
             self._task.add_done_callback(capture_future)
 
+    async def ensure_start(self):
+        """
+        Start method that can be awaited until the worker method gets a
+        change to start running.
+        """
+        self.start()
+        await self._start_event.wait()
+
     def stop(self):
         if hasattr(self, '_task') and self._task is not None:
             self._run = False
@@ -84,6 +94,10 @@ class AsyncWorker(object):
                 future = self._future
                 self._future = None
                 raise future.exception()
+
+    async def ensure_stop(self):
+        self.stop()
+        await self._stop_event.wait()
 
     def __del__(self):
         self.stop()

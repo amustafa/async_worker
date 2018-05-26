@@ -1,0 +1,1 @@
+* Add an way for the function itself to halt execution

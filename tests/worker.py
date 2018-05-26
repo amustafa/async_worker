@@ -135,3 +135,42 @@ async def test_error_in_work_fn():
 
         await asyncio.sleep(0.01)
         w.divide_by_zero_adder.stop()
+
+
+class RestartingClass(object):
+
+    def __init__(self):
+        self.count = 0
+        self.adder = AsyncWorker(self.add_to_count)
+
+    def add_to_count(self):
+        self.count += 1
+
+
+@pytest.mark.asyncio
+async def test_restarting():
+    w = ExampleSyncClass()
+    assert w.count is 0
+
+    w.adder.start()
+    await asyncio.sleep(0.1)
+    assert w.count > 3
+
+    w.adder.stop()
+    await asyncio.sleep(0.1)
+    count = w.count
+    assert w.count == count
+
+    w.adder.start()
+    await asyncio.sleep(0.1)
+    assert w.count > count
+    w.adder.stop()
+
+
+@pytest.mark.asyncio
+async def test_ensure_start_stop():
+    w = ExampleSyncClass()
+    assert w.count is 0
+    await w.adder.ensure_start()
+    assert w.count > 0
+    await w.adder.ensure_stop()
